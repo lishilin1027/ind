@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿林小型论坛</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "微软雅黑", sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .forum-header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+
+        .forum-header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .forum-header a {
+            color: white;
+            text-decoration: none;
+            margin-left: 20px;
+        }
+
+        .chat-box {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            height: 500px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .chat-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .msg-item {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 18px;
+            position: relative;
+        }
+
+        .msg-sent {
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+        }
+
+        .msg-received {
+            background-color: #e9ecef;
+            color: #333;
+            align-self: flex-start;
+        }
+
+        .msg-time {
+            font-size: 12px;
+            position: absolute;
+            bottom: -20px;
+            opacity: 0.7;
+        }
+
+        .msg-sent .msg-time {
+            right: 10px;
+        }
+
+        .msg-received .msg-time {
+            left: 10px;
+        }
+
+        .chat-input {
+            padding: 15px 20px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input textarea {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: none;
+            height: 60px;
+        }
+
+        .chat-input button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .empty-tip {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #999;
+        }
+
+        /* 调试信息样式 */
+        .debug-info {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f8ff;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #0066cc;
+            display: none; /* 默认隐藏，需要时打开 */
+        }
+    </style>
+</head>
+<body>
+    <header class="forum-header">
+        <div class="container">
+            <h1>小型论坛</h1>
+            <nav>
+                <a href="messages.html">返回私信列表</a>
+                <a href="index.html">首页</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="chat-box">
+            <div class="chat-header" id="chat-header">正在和 <span id="target-user"></span> 聊天</div>
+            <div class="chat-content" id="chat-content">
+                <div class="empty-tip">开始发送第一条消息吧</div>
+            </div>
+            <div class="chat-input">
+                <textarea id="msg-input" placeholder="请输入消息..."></textarea>
+                <button onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+        <!-- 调试信息：需要时取消注释查看 -->
+        <!-- <div class="debug-info" id="debug-info"></div> -->
+    </div>
+
+    <script>
+        // ========== 全局工具函数：自动补全用户编号 ==========
+        function completeAllUserIds() {
+            let users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+            let isUpdated = false;
+
+            function generateUniqueId(existIds) {
+                let newId;
+                do {
+                    newId = Math.floor(Math.random() * 900000) + 100000;
+                } while (existIds.includes(newId));
+                return newId;
+            }
+
+            const existIds = users.filter(u => u.userId).map(u => u.userId);
+
+            users = users.map(user => {
+                if (!user.userId) {
+                    user.userId = generateUniqueId(existIds);
+                    existIds.push(user.userId);
+                    isUpdated = true;
+                }
+                if (!user.nickname) user.nickname = user.username;
+                if (!user.avatar) user.avatar = '';
+                return user;
+            });
+
+            if (isUpdated) {
+                localStorage.setItem('registeredUsers', JSON.stringify(users));
+                console.log('用户编号补全完成');
+            }
+        }
+
+        // 页面加载时先补全编号
+        completeAllUserIds();
+
+        // ========== 全局变量 ==========
+        const currentUser = localStorage.getItem('username');
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetUser = urlParams.get('user');
+        let chatId = '';
+
+        // ========== 严格校验（重点！） ==========
+        window.onload = function() {
+            // 1. 检查登录状态
+            if (!localStorage.getItem('isLogin') || !currentUser) {
+                alert('请先登录！');
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // 2. 检查聊天对象参数
+            if (!targetUser) {
+                alert('聊天对象不存在！请从私信列表进入');
+                window.location.href = 'messages.html';
+                return;
+            }
+
+            // 3. 获取聊天对象昵称
+            const users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+            const targetUserInfo = users.find(u => u.username === targetUser);
+            const targetNickname = targetUserInfo?.nickname || targetUser;
+            document.getElementById('target-user').textContent = targetNickname;
+
+            // 4. 生成唯一聊天ID（排序保证双向一致）
+            chatId = [currentUser, targetUser].sort().join('-');
+            console.log('当前聊天ID:', chatId);
+
+            // 5. 加载聊天记录
+            loadChatHistory();
+            scrollToBottom();
+
+            // 6. 回车发送（Ctrl+Enter）
+            document.getElementById('msg-input').addEventListener('keydown', function(e) {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // 调试信息（可选）
+            // document.getElementById('debug-info').textContent = `当前用户: ${currentUser} | 聊天对象: ${targetUser} | 聊天ID: ${chatId}`;
+        };
+
+        // ========== 加载聊天记录（加强版） ==========
+        function loadChatHistory() {
+            try {
+                const privateMessages = JSON.parse(localStorage.getItem('privateMessages') || '{}');
+                const chatContent = document.getElementById('chat-content');
+                const chat = privateMessages[chatId] || { users: [currentUser, targetUser], messages: [] };
+
+                if (chat.messages.length === 0) {
+                    chatContent.innerHTML = '<div class="empty-tip">开始发送第一条消息吧</div>';
+                    return;
+                }
+
+                let html = '';
+                chat.messages.forEach(msg => {
+                    const timeStr = new Date(msg.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    const msgClass = msg.sender === currentUser ? 'msg-sent' : 'msg-received';
+                    html += `
+                        <div class="msg-item ${msgClass}">
+                            ${msg.content.replace(/\n/g, '<br>')}
+                            <div class="msg-time">${timeStr}</div>
+                        </div>
+                    `;
+                });
+                chatContent.innerHTML = html;
+            } catch (e) {
+                console.error('加载聊天记录失败:', e);
+                alert('加载聊天记录出错，请刷新页面');
+            }
+        }
+
+        // ========== 发送消息（核心修复：增加异常捕获） ==========
+        function sendMessage() {
+            try {
+                const msgInput = document.getElementById('msg-input');
+                const content = msgInput.value.trim();
+
+                // 1. 空消息校验
+                if (!content) {
+                    alert('消息内容不能为空！');
+                    return;
+                }
+
+                // 2. 构建消息对象
+                const newMsg = {
+                    sender: currentUser,
+                    receiver: targetUser,
+                    content: content,
+                    time: Date.now()
+                };
+                console.log('发送消息:', newMsg);
+
+                // 3. 读取本地私信数据（强制初始化）
+                let privateMessages = JSON.parse(localStorage.getItem('privateMessages') || '{}');
+                if (!privateMessages[chatId]) {
+                    privateMessages[chatId] = {
+                        users: [currentUser, targetUser],
+                        messages: []
+                    };
+                }
+
+                // 4. 添加新消息并保存
+                privateMessages[chatId].messages.push(newMsg);
+                localStorage.setItem('privateMessages', JSON.stringify(privateMessages));
+                console.log('消息保存成功，当前聊天记录:', privateMessages[chatId].messages);
+
+                // 5. 清空输入框 + 刷新聊天记录
+                msgInput.value = '';
+                loadChatHistory();
+                scrollToBottom();
+
+            } catch (e) {
+                console.error('发送消息失败:', e);
+                alert('发送失败，请检查控制台日志');
+            }
+        }
+
+        // ========== 辅助函数：滚动到底部 ==========
+        function scrollToBottom() {
+            const chatContent = document.getElementById('chat-content');
+            chatContent.scrollTop = chatContent.scrollHeight;
+        }
+    </script>
+</body>
+</html>

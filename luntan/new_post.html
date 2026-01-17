@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿林小型论坛</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "微软雅黑", sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .forum-header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+
+        .forum-header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .forum-header a {
+            color: white;
+            text-decoration: none;
+            font-size: 16px;
+            transition: color 0.2s;
+        }
+
+        .forum-header a:hover {
+            color: #cce5ff;
+        }
+
+        .post-form {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .post-form h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .form-group textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .message {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .message.error {
+            display: block;
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .message.success {
+            display: block;
+            background-color: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <header class="forum-header">
+        <div class="container">
+            <h1>小型论坛</h1>
+            <nav>
+                <a href="index.html">返回首页</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="post-form">
+            <h2>发布新帖子</h2>
+            <div id="message" class="message"></div>
+            <form id="post-form">
+                <div class="form-group">
+                    <label for="title">帖子标题</label>
+                    <input type="text" id="title" placeholder="请输入帖子标题">
+                </div>
+                <div class="form-group">
+                    <label for="content">帖子内容</label>
+                    <textarea id="content" placeholder="请输入帖子内容"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">发布</button>
+                <a href="index.html" class="btn btn-secondary">取消</a>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // ========== 全局工具函数：自动补全用户编号 ==========
+        function completeAllUserIds() {
+            let users = JSON.parse(localStorage.getItem('registeredUsers') || '[]');
+            let isUpdated = false;
+
+            function generateUniqueId(existIds) {
+                let newId;
+                do {
+                    newId = Math.floor(Math.random() * 900000) + 100000;
+                } while (existIds.includes(newId));
+                return newId;
+            }
+
+            const existIds = users.filter(u => u.userId).map(u => u.userId);
+
+            users = users.map(user => {
+                if (!user.userId) {
+                    user.userId = generateUniqueId(existIds);
+                    existIds.push(user.userId);
+                    isUpdated = true;
+                }
+                if (!user.nickname) user.nickname = user.username;
+                if (!user.avatar) user.avatar = '';
+                return user;
+            });
+
+            if (isUpdated) {
+                localStorage.setItem('registeredUsers', JSON.stringify(users));
+            }
+        }
+
+        // 页面加载时先补全编号
+        completeAllUserIds();
+
+        if (localStorage.getItem('isLogin') !== 'true' || !localStorage.getItem('username')) {
+            alert('请先登录才能发布帖子！');
+            window.location.href = 'login.html';
+        }
+
+        document.getElementById('post-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const title = document.getElementById('title').value.trim();
+            const content = document.getElementById('content').value.trim();
+            const username = localStorage.getItem('username');
+            const message = document.getElementById('message');
+
+            if (!title) {
+                message.className = 'message error';
+                message.textContent = '请输入帖子标题！';
+                return;
+            }
+            if (!content) {
+                message.className = 'message error';
+                message.textContent = '请输入帖子内容！';
+                return;
+            }
+
+            const post = {
+                id: Date.now(),
+                title: title,
+                content: content,
+                author: username,
+                time: Date.now(),
+                likes: [],
+                comments: []
+            };
+
+            const posts = JSON.parse(localStorage.getItem('posts') || '[]');
+            posts.push(post);
+            localStorage.setItem('posts', JSON.stringify(posts));
+
+            message.className = 'message success';
+            message.textContent = '帖子发布成功！正在返回首页...';
+            
+            setTimeout(function() {
+                window.location.href = 'index.html';
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
